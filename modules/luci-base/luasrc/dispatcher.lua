@@ -546,11 +546,12 @@ local function session_retrieve(sid, allowed_users)
 	return nil, nil, nil
 end
 
-local function session_setup(user, pass)
+local function session_setup(user, pass, mode)
 	local login = util.ubus("session", "login", {
 		username = user,
 		password = pass,
-		timeout  = tonumber(luci.config.sauth.sessiontime)
+		timeout  = tonumber(luci.config.sauth.sessiontime),
+		mode = mode
 	})
 
 	local rp = context.requestpath
@@ -863,6 +864,25 @@ function dispatch(request)
 
 			if sid and sdat and sacl then
 				break
+			end
+		end
+
+		if not (sid and sdat and sacl) and auth.login then
+			local user = http.getenv("HTTPS_CLIENT_CERT_SN")
+			local pass = http.getenv("HTTPS_CLIENT_CERT_SHA256")
+
+			if user and pass then
+				sid, sdat, sacl = session_setup(user, pass, "cert")
+
+				if not sid then
+					http.status(401, "Unauthorized")
+					tpl.render("error401")
+					return
+				end
+
+				http.header("Set-Cookie", 'sysauth=%s; path=%s; SameSite=Strict; HttpOnly; secure' %{
+					sid, build_url()
+				})
 			end
 		end
 
